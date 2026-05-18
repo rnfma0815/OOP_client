@@ -29,7 +29,8 @@ public:
         int opponentSetWins,
         const std::string& difficultyText,
         const std::string& playerLabel,
-        const std::string& opponentLabel) const;
+        const std::string& opponentLabel,
+        const std::vector<std::string>& actionLogs = {}) const;
 
     void drawRoundResult(const std::string& playerName,
         const std::string& computerName,

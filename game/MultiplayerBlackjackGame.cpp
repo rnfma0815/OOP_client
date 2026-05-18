@@ -1,6 +1,5 @@
 #include "MultiplayerBlackjackGame.h"
 #include "NetworkClient.h"
-#include "NetworkConfig.h"
 #include "BlackjackView.h"
 #include "PauseMenuView.h"
 #include "../common/ProtocolUtil.h"
@@ -11,7 +10,7 @@
 #include <sstream>
 
 MultiplayerBlackjackGame::MultiplayerBlackjackGame()
-    : serverHost(NetworkConfig::ServerHost), serverPort(NetworkConfig::ServerPort) {
+    : serverHost("127.0.0.1"), serverPort(9000) {
     menuItems.push_back("Create Room");
     menuItems.push_back("Room List");
     menuItems.push_back("Description");
@@ -206,9 +205,9 @@ void MultiplayerBlackjackGame::createRoom() {
     std::vector<std::string> fields = split(response, '|');
     std::string roomCode = fields.size() > 1 ? fields[1] : "";
 
-    while (client.isConnected()) {
-        drawWaitingRoom(roomCode, roomName, nickname, "");
+    drawWaitingRoom(roomCode, roomName, nickname, "");
 
+    while (client.isConnected()) {
         if (_kbhit()) {
             int key = _getch();
             if (key == 13 || key == 27) {
@@ -222,6 +221,11 @@ void MultiplayerBlackjackGame::createRoom() {
             if (response.rfind("GAME_START|", 0) == 0) {
                 waitForGameStart(client, nickname);
                 return;
+            }
+            if (response.rfind("PLAYER_JOINED|", 0) == 0) {
+                std::vector<std::string> joinFields = split(response, '|');
+                std::string joinedName = joinFields.size() > 1 ? ProtocolUtil::decode(joinFields[1]) : "Player2";
+                drawWaitingRoom(roomCode, roomName, nickname, joinedName + " joined. Starting game...");
             }
         }
     }
@@ -354,6 +358,39 @@ void MultiplayerBlackjackGame::playMatch(NetworkClient& client, const std::strin
     BlackjackView view;
     int selectedMenu = 0;
     std::string pendingMessage = firstState;
+    std::vector<std::string> actionLogs;
+    std::string lastActionKey;
+    int logRoundNumber = 0;
+
+    auto addLog = [&actionLogs](const std::string& text) {
+        if (text.empty()) return;
+        if (!actionLogs.empty() && actionLogs.back() == text) return;
+        actionLogs.push_back(text);
+        if (actionLogs.size() > 3) {
+            actionLogs.erase(actionLogs.begin());
+        }
+    };
+
+    auto removeWaitingLog = [&actionLogs]() {
+        if (!actionLogs.empty() && actionLogs.back() == "Waiting...") {
+            actionLogs.pop_back();
+        }
+    };
+
+    auto addWaitingLog = [&actionLogs, &removeWaitingLog]() {
+        removeWaitingLog();
+        actionLogs.push_back("Waiting...");
+        if (actionLogs.size() > 3) {
+            actionLogs.erase(actionLogs.begin());
+        }
+    };
+
+    auto actionName = [](const std::string& action) {
+        if (action == "HIT") return std::string("Hit");
+        if (action == "STAND") return std::string("Stand");
+        if (action == "HIDDEN") return std::string("Hidden Card");
+        return std::string("");
+    };
 
     while (client.isConnected()) {
         std::string message;
@@ -389,6 +426,74 @@ void MultiplayerBlackjackGame::playMatch(NetworkClient& client, const std::strin
             std::vector<Card> hiddenCards = parseCards(fields[8]);
             std::vector<Card> dealerCards = parseCards(fields[9]);
             std::string opponentFirst = fields[10] == "-" ? "(Hidden)" : parseCard(fields[10]).toString();
+            std::string playerStatus = fields.size() > 11 ? fields[11] : "ACT";
+            std::string opponentStatus = fields.size() > 12 ? fields[12] : "ACT";
+            std::string playerActionLog = fields.size() > 13 ? fields[13] : "";
+            std::string opponentActionLog = fields.size() > 14 ? fields[14] : "";
+
+            if (roundNumber != logRoundNumber) {
+                actionLogs.clear();
+                lastActionKey.clear();
+                logRoundNumber = roundNumber;
+            }
+
+            std::string actionKey =
+                std::to_string(roundNumber) + "|" +
+                playerStatus + "|" +
+                opponentStatus + "|" +
+                playerActionLog + "|" +
+                opponentActionLog;
+
+            if (actionKey != lastActionKey) {
+                std::string opponentActionName = actionName(opponentActionLog);
+                bool waitingForOpponent =
+                    playerStatus != "ACT" &&
+                    opponentStatus == "ACT";
+
+                if (!opponentActionName.empty() && !waitingForOpponent) {
+                    removeWaitingLog();
+                    addLog("상대방이 " + opponentActionName + "를 선택하였습니다.");
+                }
+                if (waitingForOpponent) {
+                    addWaitingLog();
+                }
+                lastActionKey = actionKey;
+            }
+
+            if (playerStatus == "ACT") {
+                removeWaitingLog();
+            }
+
+            if (playerStatus != "ACT") {
+                view.drawMultiplayerGameScreen(
+                    localName,
+                    opponentName,
+                    localCards,
+                    hiddenCards,
+                    dealerCards,
+                    opponentFirst,
+                    roundNumber,
+                    maxRounds,
+                    localPoint,
+                    opponentPoint,
+                    selectedMenu,
+                    actionLogs
+                );
+
+                if (_kbhit()) {
+                    int key = _getch();
+                    if (key == 27) {
+                        PauseMenuView pauseMenu;
+                        State::PauseResult result = pauseMenu.runOnline();
+                        if (result == State::PauseResult::EXIT_TO_MENU) {
+                            client.sendMessage("LEAVE_ROOM");
+                            client.disconnect();
+                            return;
+                        }
+                    }
+                }
+                continue;
+            }
 
             bool acted = false;
             while (!acted) {
@@ -403,39 +508,102 @@ void MultiplayerBlackjackGame::playMatch(NetworkClient& client, const std::strin
                     maxRounds,
                     localPoint,
                     opponentPoint,
-                    selectedMenu
+                    selectedMenu,
+                    actionLogs
                 );
 
-                int key = _getch();
-                if (key == 224 || key == 0) {
-                    int arrow = _getch();
-                    if (arrow == 75) selectedMenu = (selectedMenu - 1 + 3) % 3;
-                    else if (arrow == 77) selectedMenu = (selectedMenu + 1) % 3;
-                }
-                else if (key == 13) {
-                    if (selectedMenu == 0) {
-                        client.sendMessage("BLACKJACK_ACTION|OPEN");
+                bool redraw = false;
+                while (!acted && !redraw) {
+                    std::string liveMessage;
+                    if (client.receiveLineWithTimeout(liveMessage, 50)) {
+                        pendingMessage = liveMessage;
                         acted = true;
+                        break;
                     }
-                    else if (selectedMenu == 1) {
-                        client.sendMessage("BLACKJACK_ACTION|STOP");
-                        acted = true;
+
+                    if (!_kbhit()) {
+                        continue;
                     }
-                    else {
-                        if (hiddenCards.empty()) {
-                            continue;
+
+                    int key = _getch();
+                    if (key == 224 || key == 0) {
+                        int arrow = _getch();
+                        if (arrow == 75) selectedMenu = (selectedMenu - 1 + 3) % 3;
+                        else if (arrow == 77) selectedMenu = (selectedMenu + 1) % 3;
+                        redraw = true;
+                    }
+                    else if (key == 13) {
+                        if (selectedMenu == 0) {
+                            client.sendMessage("BLACKJACK_ACTION|OPEN");
+                            addWaitingLog();
+                            view.drawMultiplayerGameScreen(
+                                localName,
+                                opponentName,
+                                localCards,
+                                hiddenCards,
+                                dealerCards,
+                                opponentFirst,
+                                roundNumber,
+                                maxRounds,
+                                localPoint,
+                                opponentPoint,
+                                selectedMenu,
+                                actionLogs
+                            );
+                            acted = true;
                         }
-                        client.sendMessage("BLACKJACK_ACTION|USE_HIDDEN|0");
-                        acted = true;
+                        else if (selectedMenu == 1) {
+                            client.sendMessage("BLACKJACK_ACTION|STOP");
+                            addWaitingLog();
+                            view.drawMultiplayerGameScreen(
+                                localName,
+                                opponentName,
+                                localCards,
+                                hiddenCards,
+                                dealerCards,
+                                opponentFirst,
+                                roundNumber,
+                                maxRounds,
+                                localPoint,
+                                opponentPoint,
+                                selectedMenu,
+                                actionLogs
+                            );
+                            acted = true;
+                        }
+                        else {
+                            if (hiddenCards.empty()) {
+                                redraw = true;
+                                continue;
+                            }
+                            client.sendMessage("BLACKJACK_ACTION|USE_HIDDEN|0");
+                            addWaitingLog();
+                            view.drawMultiplayerGameScreen(
+                                localName,
+                                opponentName,
+                                localCards,
+                                hiddenCards,
+                                dealerCards,
+                                opponentFirst,
+                                roundNumber,
+                                maxRounds,
+                                localPoint,
+                                opponentPoint,
+                                selectedMenu,
+                                actionLogs
+                            );
+                            acted = true;
+                        }
                     }
-                }
-                else if (key == 27) {
-                    PauseMenuView pauseMenu;
-                    State::PauseResult result = pauseMenu.runOnline();
-                    if (result == State::PauseResult::EXIT_TO_MENU) {
-                        client.sendMessage("LEAVE_ROOM");
-                        client.disconnect();
-                        return;
+                    else if (key == 27) {
+                        PauseMenuView pauseMenu;
+                        State::PauseResult result = pauseMenu.runOnline();
+                        if (result == State::PauseResult::EXIT_TO_MENU) {
+                            client.sendMessage("LEAVE_ROOM");
+                            client.disconnect();
+                            return;
+                        }
+                        redraw = true;
                     }
                 }
             }
@@ -518,9 +686,9 @@ void MultiplayerBlackjackGame::showDescription() const {
     system("color 0E");
 
     std::cout << "================ ONLINE BLACKJACK DESCRIPTION ================\n\n";
-    std::cout << "- 2 players share one server-side Blackjack room.\n";
-    std::cout << "- The server owns deck, dealer, card dealing, and result judging.\n";
-    std::cout << "- Clients only send Open / Stop / Use Hidden choices.\n";
+    std::cout << "- 2 players play directly against each other without a dealer.\n";
+    std::cout << "- Hit / Stand choices are collected, then resolved together.\n";
+    std::cout << "- Bust is judged only after both players stand; double bust has no winner.\n";
 
     std::cout << "\n\nPress any key to return...";
     _getch();

@@ -1,7 +1,6 @@
 #include "MultiplayerClimbingGame.h"
 #include "ClimbingGameView.h"
 #include "NetworkClient.h"
-#include "NetworkConfig.h"
 #include "PauseMenuView.h"
 #include "../common/ProtocolUtil.h"
 
@@ -12,7 +11,7 @@
 #include <sstream>
 
 MultiplayerClimbingGame::MultiplayerClimbingGame()
-    : serverHost(NetworkConfig::ServerHost), serverPort(NetworkConfig::ServerPort) {
+    : serverHost("127.0.0.1"), serverPort(9000) {
     menuItems.push_back("Create Room");
     menuItems.push_back("Room List");
     menuItems.push_back("Description");
@@ -478,16 +477,41 @@ void MultiplayerClimbingGame::playMatch(NetworkClient& client, const std::string
         }
         client.sendMessage("SELECT_CARD|" + selectedCard);
 
+        std::vector<std::string> actionLogs = { "Waiting..." };
+        std::vector<std::string> cardNames;
+        for (const std::string& card : availableCards) {
+            cardNames.push_back(protocolCardToDisplayName(card));
+        }
+        int selectedIndex = 0;
+        for (int i = 0; i < (int)availableCards.size(); i++) {
+            if (availableCards[i] == selectedCard) {
+                selectedIndex = i;
+                break;
+            }
+        }
+        ClimbingGameView waitingView;
+        waitingView.drawGameScreen(
+            cardNames,
+            selectedIndex,
+            localRoundScoreForScreen,
+            opponentRoundScoreForScreen,
+            roundNumber,
+            maxRounds,
+            setNumber,
+            maxSets,
+            localSetWinsForScreen,
+            opponentSetWinsForScreen,
+            "Online",
+            localNameForScore,
+            opponentNameForScore,
+            actionLogs
+        );
+
         bool needNextTurnSignal = false;
 
         std::string message;
         while (client.receiveLine(message)) {
             if (message.rfind("CARD_SELECTED|", 0) == 0) {
-                system("cls");
-                system("color 0E");
-                std::cout << "==================== ONLINE CLIMBING ====================\n\n";
-                std::cout << "You selected " << protocolCardToDisplayName(selectedCard) << ".\n";
-                std::cout << "Waiting for opponent...\n";
                 continue;
             }
 
@@ -600,6 +624,7 @@ void MultiplayerClimbingGame::playMatch(NetworkClient& client, const std::string
             return;
         }
 
+        bool gotNextTurnSignal = false;
         while (client.receiveLine(message)) {
             if (message.rfind("NEXT_ROUND|", 0) == 0) {
                 std::vector<std::string> fields = split(message, '|');
@@ -609,6 +634,7 @@ void MultiplayerClimbingGame::playMatch(NetworkClient& client, const std::string
                 maxSets = fields.size() > 4 ? std::atoi(fields[4].c_str()) : maxSets;
                 p1SetWins = fields.size() > 5 ? std::atoi(fields[5].c_str()) : p1SetWins;
                 p2SetWins = fields.size() > 6 ? std::atoi(fields[6].c_str()) : p2SetWins;
+                gotNextTurnSignal = true;
                 break;
             }
 
@@ -623,6 +649,7 @@ void MultiplayerClimbingGame::playMatch(NetworkClient& client, const std::string
                 p1RoundScore = 0;
                 p2RoundScore = 0;
                 availableCards = { "KING", "QUEEN", "SERVANT", "JOKER" };
+                gotNextTurnSignal = true;
                 break;
             }
 
@@ -637,8 +664,10 @@ void MultiplayerClimbingGame::playMatch(NetworkClient& client, const std::string
             }
         }
 
-        showDisconnectedMessage(opponentNameForScore);
-        return;
+        if (!gotNextTurnSignal) {
+            showDisconnectedMessage(opponentNameForScore);
+            return;
+        }
     }
 }
 
@@ -646,55 +675,55 @@ void MultiplayerClimbingGame::waitInCreatedRoom(NetworkClient& client, const Roo
     RoomInfo currentRoom = room;
     std::string status;
 
-    while (client.isConnected()) {
-        drawWaitingRoom(currentRoom, status);
+    drawWaitingRoom(currentRoom, status);
 
-        for (int i = 0; i < 10; i++) {
-            if (_kbhit()) {
-                int key = _getch();
-                if (key == 13) {
-                    client.sendMessage("LEAVE_ROOM");
-                    client.disconnect();
-                    return;
-                }
+    while (client.isConnected()) {
+        if (_kbhit()) {
+            int key = _getch();
+            if (key == 13) {
+                client.sendMessage("LEAVE_ROOM");
+                client.disconnect();
+                return;
+            }
+        }
+
+        std::string message;
+        if (client.receiveLineWithTimeout(message, 100)) {
+            if (message.rfind("PLAYER_JOINED|", 0) == 0) {
+                std::vector<std::string> fields = split(message, '|');
+                std::string joinedName = fields.size() > 1 ? ProtocolUtil::decode(fields[1]) : "Player2";
+                currentRoom.currentPlayer = 2;
+                currentRoom.playerNames = nickname + "/" + joinedName;
+                status = joinedName + " joined.";
+                drawWaitingRoom(currentRoom, status);
+                continue;
             }
 
-            std::string message;
-            if (client.receiveLineWithTimeout(message, 100)) {
-                if (message.rfind("PLAYER_JOINED|", 0) == 0) {
-                    std::vector<std::string> fields = split(message, '|');
-                    std::string joinedName = fields.size() > 1 ? ProtocolUtil::decode(fields[1]) : "Player2";
-                    currentRoom.currentPlayer = 2;
-                    currentRoom.playerNames = nickname + "/" + joinedName;
-                    status = joinedName + " joined.";
-                    break;
-                }
+            if (message.rfind("GAME_START", 0) == 0) {
+                std::vector<std::string> fields = split(message, '|');
+                std::string p1Name = fields.size() > 1 ? ProtocolUtil::decode(fields[1]) : nickname;
+                std::string p2Name = fields.size() > 2 ? ProtocolUtil::decode(fields[2]) : "Player2";
+                currentRoom.currentPlayer = 2;
+                currentRoom.playing = true;
+                drawWaitingRoom(currentRoom, "GAME_START");
+                int roundNumber = fields.size() > 3 ? std::atoi(fields[3].c_str()) : 1;
+                int maxRounds = fields.size() > 4 ? std::atoi(fields[4].c_str()) : 4;
+                int setNumber = fields.size() > 5 ? std::atoi(fields[5].c_str()) : 1;
+                int maxSets = fields.size() > 6 ? std::atoi(fields[6].c_str()) : 5;
+                playMatch(client, nickname, p1Name, p2Name, roundNumber, maxRounds, setNumber, maxSets);
+                return;
+            }
 
-                if (message.rfind("GAME_START", 0) == 0) {
-                    std::vector<std::string> fields = split(message, '|');
-                    std::string p1Name = fields.size() > 1 ? ProtocolUtil::decode(fields[1]) : nickname;
-                    std::string p2Name = fields.size() > 2 ? ProtocolUtil::decode(fields[2]) : "Player2";
-                    currentRoom.currentPlayer = 2;
-                    currentRoom.playing = true;
-                    drawWaitingRoom(currentRoom, "GAME_START");
-                    int roundNumber = fields.size() > 3 ? std::atoi(fields[3].c_str()) : 1;
-                    int maxRounds = fields.size() > 4 ? std::atoi(fields[4].c_str()) : 4;
-                    int setNumber = fields.size() > 5 ? std::atoi(fields[5].c_str()) : 1;
-                    int maxSets = fields.size() > 6 ? std::atoi(fields[6].c_str()) : 5;
-                    playMatch(client, nickname, p1Name, p2Name, roundNumber, maxRounds, setNumber, maxSets);
-                    return;
-                }
+            if (message.rfind("ERROR|", 0) == 0) {
+                status = message;
+                drawWaitingRoom(currentRoom, status);
+                continue;
+            }
 
-                if (message.rfind("ERROR|", 0) == 0) {
-                    status = message;
-                    break;
-                }
-
-                if (message.rfind("PLAYER_LEFT|", 0) == 0 || message.rfind("GAME_ABORTED|", 0) == 0) {
-                    std::vector<std::string> fields = split(message, '|');
-                    showDisconnectedMessage(fields.size() > 1 ? ProtocolUtil::decode(fields[1]) : "Player");
-                    return;
-                }
+            if (message.rfind("PLAYER_LEFT|", 0) == 0 || message.rfind("GAME_ABORTED|", 0) == 0) {
+                std::vector<std::string> fields = split(message, '|');
+                showDisconnectedMessage(fields.size() > 1 ? ProtocolUtil::decode(fields[1]) : "Player");
+                return;
             }
         }
     }

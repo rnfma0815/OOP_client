@@ -1,6 +1,8 @@
 #pragma once
 #include "BlackjackPlayer.h"
 #include "BlackjackDealer.h"
+#include <string>
+#include <vector>
 #include <windows.h>
 
 class BlackjackView {
@@ -29,7 +31,8 @@ public:
                                    int maxRounds,
                                    int playerPoint,
                                    int opponentPoint,
-                                   int selectedMenu) const;
+                                   int selectedMenu,
+                                   const std::vector<std::string>& actionLogs = {}) const;
 
     void showMultiplayerRoundResult(const std::string& playerName,
                                     const std::string& opponentName,

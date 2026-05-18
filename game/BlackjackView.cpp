@@ -6,6 +6,10 @@
 #include <conio.h>
 #include <windows.h>
 
+namespace {
+const int kMultiplayerLogLines = 3;
+}
+
 void BlackjackView::drawWinArt() const {
     ConsoleHelper::printCentered("__        __      ___       _   _ ", 60, -2);
     ConsoleHelper::printCentered("\\ \\      / /     |_ _|     | \\ | |", 60, -2);
@@ -199,7 +203,8 @@ void BlackjackView::drawMultiplayerGameScreen(const std::string& playerName,
                                               int maxRounds,
                                               int playerPoint,
                                               int opponentPoint,
-                                              int selectedMenu) const {
+                                              int selectedMenu,
+                                              const std::vector<std::string>& actionLogs) const {
     ConsoleHelper::clearScreen();
     ConsoleHelper::setDefaultTheme();
 
@@ -222,10 +227,6 @@ void BlackjackView::drawMultiplayerGameScreen(const std::string& playerName,
     std::cout << "           " << playerName << ": " << playerPoint
               << "  " << opponentName << ": " << opponentPoint << "\n\n";
 
-    std::cout << "Dealer Open Card\n";
-    drawHugePlayerField(dealerCards, {});
-    std::cout << "\n";
-
     std::cout << opponentName << " First Card : " << opponentFirstCard << "\n\n";
 
     std::cout << playerName << " Cards\n";
@@ -245,7 +246,21 @@ void BlackjackView::drawMultiplayerGameScreen(const std::string& playerName,
     }
     std::cout << "\n\n";
 
-    std::vector<std::string> menu = { "Open", "Stop", "Use Hidden" };
+    std::cout << "┌───────────────────────── LOG ──────────────────────────┐\n";
+    int emptyLineCount = kMultiplayerLogLines - (int)actionLogs.size();
+    if (emptyLineCount < 0) emptyLineCount = 0;
+    for (int i = 0; i < emptyLineCount; i++) {
+        std::cout << "  \n";
+    }
+    int firstLog = (int)actionLogs.size() > kMultiplayerLogLines
+        ? (int)actionLogs.size() - kMultiplayerLogLines
+        : 0;
+    for (int i = firstLog; i < (int)actionLogs.size(); i++) {
+        std::cout << "  " << actionLogs[i] << "\n";
+    }
+    std::cout << "└────────────────────────────────────────────────────────┘\n\n";
+
+    std::vector<std::string> menu = { "Hit", "Stand", "Use Hidden" };
     ConsoleHelper::drawHorizontalMenu(menu, selectedMenu, 17);
 
     std::cout << "\n";
@@ -273,10 +288,6 @@ void BlackjackView::showMultiplayerRoundResult(const std::string& playerName,
     std::cout << "Round " << currentRound << " / " << maxRounds << "\n";
     std::cout << "Match Score : " << playerName << " " << playerPoint
               << "  -  " << opponentName << " " << opponentPoint << "\n\n";
-
-    std::cout << "Dealer Cards\n";
-    drawHugePlayerField(dealerCards, {});
-    std::cout << "\n";
 
     std::cout << playerName << " Cards  [" << playerResult << "]\n";
     drawHugePlayerField(playerCards, {});

@@ -47,7 +47,8 @@ void ClimbingGameView::drawGameScreen(const std::vector<std::string>& playerCard
     int opponentSetWins,
     const std::string& difficultyText,
     const std::string& playerLabel,
-    const std::string& opponentLabel) const {
+    const std::string& opponentLabel,
+    const std::vector<std::string>& actionLogs) const {
     ConsoleHelper::clearScreen();
     ConsoleHelper::setDefaultTheme();
 
@@ -82,6 +83,9 @@ void ClimbingGameView::drawGameScreen(const std::vector<std::string>& playerCard
     }
 
     if (difficultyText == "Online") {
+        if (!actionLogs.empty()) {
+            std::cout << "\n" << actionLogs.back() << "\n";
+        }
         std::cout << "\nUse UP / DOWN to choose card, ENTER to play, ESC to leave room\n";
     }
     else {
