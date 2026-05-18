@@ -1,5 +1,6 @@
 #include "MultiplayerBlackjackGame.h"
 #include "NetworkClient.h"
+#include "NetworkConfig.h"
 #include "BlackjackView.h"
 #include "PauseMenuView.h"
 #include "../common/ProtocolUtil.h"
@@ -10,7 +11,7 @@
 #include <sstream>
 
 MultiplayerBlackjackGame::MultiplayerBlackjackGame()
-    : serverHost("127.0.0.1"), serverPort(9000) {
+    : serverHost(NetworkConfig::ServerHost), serverPort(NetworkConfig::ServerPort) {
     menuItems.push_back("Create Room");
     menuItems.push_back("Room List");
     menuItems.push_back("Description");
