@@ -1,6 +1,6 @@
 #pragma once
 
 namespace NetworkConfig {
-    constexpr const char* ServerHost = "158.180.71.181";
+    constexpr const char* ServerHost = "169.213.25.19";
     constexpr unsigned short ServerPort = 9000;
 }

@@ -1,39 +1,41 @@
 # OOP Client
 
-Windows console client for the OOP multiplayer game.
+OOP 멀티플레이어 게임의 Windows 콘솔 클라이언트입니다.
 
-The multiplayer client connects to the cloud TCP server at:
+멀티플레이어 클라이언트는 아래 클라우드 TCP 서버에 접속합니다.
 
 ```text
-158.180.71.181:9000
+169.213.25.19:9000
 ```
 
-## Build
+## 빌드 방법
 
-Install Visual Studio 2022 or Visual Studio Build Tools with the C++ toolchain,
-then run:
+Visual Studio 2022 또는 Visual Studio Build Tools를 설치하고,
+C++ 빌드 도구가 포함되어 있는지 확인합니다.
+
+그다음 아래 배치 파일을 실행합니다.
 
 ```bat
 build_game.bat
 ```
 
-This creates:
+빌드가 완료되면 다음 실행 파일이 생성됩니다.
 
 ```text
 Client.exe
 ```
 
-## Run
+## 실행 방법
 
 ```bat
 Client.exe
 ```
 
-Use the multiplayer menus to create or join an online room.
+실행 후 멀티플레이어 메뉴에서 온라인 방을 만들거나 기존 방에 참가할 수 있습니다.
 
-## Server Address
+## 서버 주소 설정
 
-The server address is configured in:
+서버 주소는 아래 파일에서 설정합니다.
 
 ```text
 game/NetworkConfig.h
